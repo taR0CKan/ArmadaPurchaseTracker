@@ -2,17 +2,29 @@
 
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+import re
 
 
 def normalize_datetime(value: str) -> str | None:
-    """Convert Russian date/time text to SQLite-friendly ISO format."""
-    value = " ".join(value.replace("(МСК)", "").split())
-    for pattern in ("%d.%m.%Y %H:%M", "%d.%m.%Y"):
-        try:
-            return datetime.strptime(value, pattern).isoformat(sep=" ")
-        except ValueError:
-            pass
-    return value or None
+    """Extract only the date and optional time, dropping surrounding notes."""
+    match = re.search(
+        r"(?<!\d)(\d{1,2}\.\d{1,2}\.\d{4})"
+        r"(?:\s+(\d{1,2}:\d{2}(?::\d{2})?))?",
+        value,
+    )
+    if not match:
+        return None
+
+    date_text, time_text = match.groups()
+    patterns = (
+        ("%d.%m.%Y %H:%M:%S", f"{date_text} {time_text}") if time_text and time_text.count(":") == 2
+        else ("%d.%m.%Y %H:%M", f"{date_text} {time_text}") if time_text
+        else ("%d.%m.%Y", date_text)
+    )
+    try:
+        return datetime.strptime(patterns[1], patterns[0]).isoformat(sep=" ")
+    except ValueError:
+        return None
 
 
 def normalize_price(value: str) -> int | None:

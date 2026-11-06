@@ -7,12 +7,14 @@ import re
 import sqlite3
 from pathlib import Path
 
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, Router
 from aiogram.types import Message, MessageReactionUpdated, ReactionTypeEmoji
 from requests import RequestException
 
 from DB_tasks.add_purchase import add_purchase, update_message_reaction
+from commands import router as commands_router
 from fetch_zakupki_page import fetch_purchase
+from reminders import check_and_send_reminders, reminder_chat_id, run_daily_reminders
 
 from dotenv import load_dotenv
 
@@ -20,6 +22,8 @@ URL_PATTERN = re.compile(r"https?://(?:www\.)?zakupki\.gov\.ru/[^\s<>\]\[(){}]+"
 TRAILING_PUNCTUATION = ".,!?;:»)]}"
 
 dispatcher = Dispatcher()
+dispatcher.include_router(commands_router)
+messages_router = Router()
 
 
 def extract_link_and_description(message_text: str) -> tuple[str, str] | None:
@@ -39,7 +43,7 @@ def extract_link_and_description(message_text: str) -> tuple[str, str] | None:
     return url, description
 
 
-@dispatcher.message()
+@messages_router.message()
 async def process_message(message: Message) -> None:
     text = message.text or message.caption
     if not text:
@@ -63,8 +67,15 @@ async def process_message(message: Message) -> None:
     number = fields.get("purchase_number") or "неизвестен"
     if added:
         await message.reply(f"Закупка {number} сохранена в базу данных.")
+        try:
+            await check_and_send_reminders(message.bot)
+        except Exception:
+            logging.exception("Failed to check reminders for newly added purchase %s", number)
     else:
         await message.reply(f"Закупка {number} уже есть в базе данных.")
+
+
+dispatcher.include_router(messages_router)
 
 
 @dispatcher.message_reaction()
@@ -90,6 +101,14 @@ async def process_reaction(event: MessageReactionUpdated) -> None:
             emoji_set(event.old_reaction),
             emoji_set(event.new_reaction),
             approver_id,
+            " ".join(
+                part
+                for part in (
+                    event.user.full_name,
+                    f"(@{event.user.username})" if event.user.username else None,
+                )
+                if part
+            ),
         )
     except sqlite3.Error:
         logging.exception("Failed to save Telegram reaction")
@@ -105,12 +124,21 @@ async def main() -> None:
         raise RuntimeError(
             "Set TELEGRAM_BOT_TOKEN in the process environment or in the project .env file"
         )
+    reminder_chat_id()
 
     async with Bot(token=token) as bot:
-        await dispatcher.start_polling(
-            bot,
-            allowed_updates=["message", "message_reaction"],
-        )
+        reminder_task = asyncio.create_task(run_daily_reminders(bot))
+        try:
+            await dispatcher.start_polling(
+                bot,
+                allowed_updates=["message", "message_reaction"],
+            )
+        finally:
+            reminder_task.cancel()
+            try:
+                await reminder_task
+            except asyncio.CancelledError:
+                pass
 
 
 if __name__ == "__main__":

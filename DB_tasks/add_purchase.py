@@ -39,6 +39,7 @@ def update_message_reaction(
     old_reactions: set[str],
     new_reactions: set[str],
     approver_user_id: int | None,
+    executor_name: str | None = None,
 ) -> bool:
     """Update executor/approval for a Telegram reaction change."""
     old_thumb = "👍" in old_reactions
@@ -49,16 +50,9 @@ def update_message_reaction(
     with sqlite3.connect(DB_PATH) as connection:
         if new_thumb and not old_thumb:
             connection.execute(
-                "UPDATE purchases SET executor = ? WHERE source_message = ?",
-                (str(user_id), str(message_id)),
+                "UPDATE purchases SET executor = ?, executor_name = ? WHERE source_message = ?",
+                (str(user_id), executor_name, str(message_id)),
             )
-        elif old_thumb and not new_thumb:
-            connection.execute(
-                "UPDATE purchases SET executor = NULL "
-                "WHERE source_message = ? AND executor = ?",
-                (str(message_id), str(user_id)),
-            )
-
         if user_id == approver_user_id and old_ok != new_ok:
             connection.execute(
                 "UPDATE purchases SET is_approved = ? WHERE source_message = ?",
