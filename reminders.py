@@ -4,14 +4,14 @@ import asyncio
 import html
 import logging
 import os
-from datetime import date, datetime, time, timedelta
-from decimal import Decimal
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot
 
 from DB_tasks.create_database import ensure_reminders_table
 from DB_tasks.reminder_store import load_reminder_data, mark_reminder_sent
+from data_preprocessing import format_price, parse_date
 
 REMINDER_TIMEZONE = os.getenv("REMINDER_TIMEZONE", "Asia/Novosibirsk")
 DAILY_CHECK_TIME = time(9, 0)
@@ -29,17 +29,11 @@ def reminder_chat_id() -> int:
         raise RuntimeError("PURCHASE_CHAT_ID must be an integer") from exc
 
 
-def _date_part(value: str | None) -> date | None:
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(value.strip()).date()
-    except ValueError:
-        try:
-            return date.fromisoformat(value.strip()[:10])
-        except ValueError:
-            logging.warning("Ignoring invalid purchase end_date %r", value)
-            return None
+def reminders_enabled() -> bool:
+    """Return whether purchase deadline reminders are enabled by configuration."""
+    return os.getenv("PURCHASE_REMINDERS_ENABLED", "true").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
 
 
 def _threshold_lead_days(initial_price: int | None) -> int | None:
@@ -52,16 +46,9 @@ def _threshold_lead_days(initial_price: int | None) -> int | None:
     return 7
 
 
-def _format_price(initial_price: int | None) -> str:
-    if initial_price is None:
-        return "не указана"
-    rubles = Decimal(initial_price) / 100
-    return f"{rubles:,.2f}".replace(",", " ") + " ₽"
-
-
 def _message(row: tuple, lead_days: int) -> str:
     number, description, end_date_raw, initial_price, executor, executor_name, purchase_url = row
-    end_date = _date_part(end_date_raw)
+    end_date = parse_date(end_date_raw)
     due = end_date.strftime("%d.%m.%Y") if end_date else html.escape(str(end_date_raw))
     executor_text = "не назначен"
     if executor:
@@ -83,13 +70,15 @@ def _message(row: tuple, lead_days: int) -> str:
         f"Закупка: <code>{html.escape(str(number))}</code>\n"
         f"Описание: {description_text}\n"
         f"Дедлайн: <b>{due}</b>\n"
-        f"Начальная цена: {html.escape(_format_price(initial_price))}\n"
+        f"Начальная цена: {html.escape(format_price(initial_price))}\n"
         f"Ответственный: {executor_text}{url_line}"
     )
 
 
 async def check_and_send_reminders(bot: Bot) -> None:
     """Send due one-time reminders, including the universal one-day reminder."""
+    if not reminders_enabled():
+        return
     async with _check_lock:
         chat_id = reminder_chat_id()
         today = datetime.now(ZoneInfo(REMINDER_TIMEZONE)).date()
@@ -98,7 +87,7 @@ async def check_and_send_reminders(bot: Bot) -> None:
 
         for row in purchases:
             number, _description, end_date_raw, initial_price, _executor, _executor_name, _url = row
-            end_date = _date_part(end_date_raw)
+            end_date = parse_date(end_date_raw)
             if end_date is None or today > end_date:
                 continue
 

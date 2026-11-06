@@ -14,7 +14,12 @@ from requests import RequestException
 from DB_tasks.add_purchase import add_purchase, update_message_reaction
 from commands import router as commands_router
 from fetch_zakupki_page import fetch_purchase
-from reminders import check_and_send_reminders, reminder_chat_id, run_daily_reminders
+from reminders import (
+    check_and_send_reminders,
+    reminder_chat_id,
+    reminders_enabled,
+    run_daily_reminders,
+)
 
 from dotenv import load_dotenv
 
@@ -24,6 +29,7 @@ TRAILING_PUNCTUATION = ".,!?;:»)]}"
 dispatcher = Dispatcher()
 dispatcher.include_router(commands_router)
 messages_router = Router()
+dispatcher.include_router(messages_router)
 
 
 def extract_link_and_description(message_text: str) -> tuple[str, str] | None:
@@ -43,14 +49,21 @@ def extract_link_and_description(message_text: str) -> tuple[str, str] | None:
     return url, description
 
 
-@messages_router.message()
-async def process_message(message: Message) -> None:
+async def process_purchase_message(
+    message: Message,
+    response_message: Message | None = None,
+) -> None:
+    """Parse and save a purchase link from a message, reporting on a chosen message."""
     text = message.text or message.caption
     if not text:
+        if response_message is not None:
+            await response_message.answer("В сообщении нет текста или подписи со ссылкой на закупку.")
         return
 
     extracted = extract_link_and_description(text)
     if not extracted:
+        if response_message is not None:
+            await response_message.answer("В сообщении не найдена ссылка на zakupki.gov.ru.")
         return
 
     url, description = extracted
@@ -61,21 +74,38 @@ async def process_message(message: Message) -> None:
         added = await asyncio.to_thread(add_purchase, fields)
     except (RequestException, OSError, sqlite3.Error, ValueError) as exc:
         logging.exception("Failed to process zakupki.gov.ru link")
-        await message.reply(f"Не удалось обработать закупку: {exc}")
+        target = response_message or message
+        await target.answer(f"Не удалось обработать закупку: {exc}")
         return
 
     number = fields.get("purchase_number") or "неизвестен"
+    target = response_message or message
     if added:
-        await message.reply(f"Закупка {number} сохранена в базу данных.")
+        await target.answer(f"Закупка {number} сохранена в базу данных.")
         try:
             await check_and_send_reminders(message.bot)
         except Exception:
             logging.exception("Failed to check reminders for newly added purchase %s", number)
     else:
-        await message.reply(f"Закупка {number} уже есть в базе данных.")
+        await target.answer(f"Закупка {number} уже есть в базе данных.")
 
 
-dispatcher.include_router(messages_router)
+@messages_router.message()
+async def process_message(message: Message) -> None:
+    if (message.text or "").strip().casefold() == "add":
+        if message.reply_to_message is None:
+            await message.answer("Ответьте текстом add на сообщение со ссылкой на закупку.")
+            return
+        await process_purchase_message(
+            message.reply_to_message,
+            response_message=message,
+        )
+        return
+
+    await process_purchase_message(message)
+
+
+
 
 
 @dispatcher.message_reaction()
@@ -124,21 +154,31 @@ async def main() -> None:
         raise RuntimeError(
             "Set TELEGRAM_BOT_TOKEN in the process environment or in the project .env file"
         )
-    reminder_chat_id()
+    if reminders_enabled():
+        reminder_chat_id()
 
     async with Bot(token=token) as bot:
-        reminder_task = asyncio.create_task(run_daily_reminders(bot))
+        reminder_task = (
+            asyncio.create_task(run_daily_reminders(bot))
+            if reminders_enabled()
+            else None
+        )
+        if reminder_task is None:
+            logging.info("Purchase deadline reminders are disabled")
         try:
             await dispatcher.start_polling(
                 bot,
-                allowed_updates=["message", "message_reaction"],
+
+                handle_as_tasks=False,
+                drop_pending_updates=False,
             )
         finally:
-            reminder_task.cancel()
-            try:
-                await reminder_task
-            except asyncio.CancelledError:
-                pass
+            if reminder_task is not None:
+                reminder_task.cancel()
+                try:
+                    await reminder_task
+                except asyncio.CancelledError:
+                    pass
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 """Normalize dates and prices extracted from zakupki.gov.ru pages."""
 
-from datetime import datetime
+import logging
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 import re
 
@@ -37,3 +38,25 @@ def normalize_price(value: str) -> int | None:
         return int(Decimal(cleaned) * 100)
     except InvalidOperation:
         return None
+
+
+def format_price(initial_price: int | None) -> str:
+    """Format a price stored in kopecks as a ruble amount for display."""
+    if initial_price is None:
+        return "не указана"
+    rubles = Decimal(initial_price) / 100
+    return f"{rubles:,.2f}".replace(",", " ") + " ₽"
+
+
+def parse_date(value: str | None) -> date | None:
+    """Parse the calendar date from an ISO date or datetime value."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.strip()).date()
+    except ValueError:
+        try:
+            return date.fromisoformat(value.strip()[:10])
+        except ValueError:
+            logging.warning("Ignoring invalid purchase end_date %r", value)
+            return None

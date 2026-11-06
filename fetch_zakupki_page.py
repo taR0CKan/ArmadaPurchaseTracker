@@ -42,7 +42,10 @@ def extract_fields(html: str) -> dict[str, str | None]:
             value = title.find_next_sibling(class_="common-text__value")
             if value:
                 text = value.get_text(" ", strip=True).replace("(МСК)", "").strip()
-                result[key] = normalize_datetime(text)
+                if key in {"start_date", "end_date"}:
+                    result[key] = normalize_datetime(text)
+                else:
+                    result[key] = text or None
 
     # Initial price has its own price block on this page.
     price_title = soup.select_one(".price-block__title")
