@@ -94,8 +94,8 @@ async def add_replied_purchase(message: Message, command: CommandObject) -> None
 async def send_purchases_list(message: Message) -> None:
     """Export all purchases to an Excel workbook and send it to this chat."""
     headers = (
-        "Номер закупки",
-        "Описание",
+        "Номер на ЕИС",
+        "Наименование",
         "Начало подачи заявок",
         "Окончание подачи заявок",
         "Порядок подачи заявок",

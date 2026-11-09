@@ -28,11 +28,23 @@ FIELDS = {
 
 def extract_fields(html: str) -> dict[str, str | None]:
     soup = BeautifulSoup(html, "html.parser")
-    result = {"purchase_number": None, **{key: None for key in FIELDS.values()}}
+    result = {
+        "purchase_number": None,
+        "description": None,
+        **{key: None for key in FIELDS.values()},
+    }
 
     number = soup.select_one(".registry-entry__header-mid__number a")
     if number:
         result["purchase_number"] = number.get_text(" ", strip=True).removeprefix("№").strip()
+
+    for block in soup.select(".registry-entry__body-block"):
+        title = block.select_one(".registry-entry__body-title")
+        if title and title.get_text(" ", strip=True) == "Объект закупки":
+            description = block.select_one(".registry-entry__body-value")
+            if description:
+                result["description"] = description.get_text(" ", strip=True) or None
+            break
 
     # The three procedure fields are represented by title/value pairs.
     for title in soup.select(".common-text__title"):
@@ -57,8 +69,8 @@ def extract_fields(html: str) -> dict[str, str | None]:
     return result
 
 
-def fetch_purchase(url: str, text_parameter: str) -> tuple[str, dict[str, str | None]]:
-    """Fetch a card URL, extract fields, and attach the supplied description."""
+def fetch_purchase(url: str) -> tuple[str, dict[str, str | None]]:
+    """Fetch a card URL and extract its purchase fields."""
     ca_bundle = certificate_prep.prepare_ca_bundle()
     response = requests.get(
         url,
@@ -74,28 +86,26 @@ def fetch_purchase(url: str, text_parameter: str) -> tuple[str, dict[str, str | 
         response.encoding = response.apparent_encoding or "utf-8"
 
     fields = extract_fields(response.text)
-    fields["description"] = text_parameter
     fields["purchase_URL"] = url
     return response.text, fields
 
 
-def get_purchase_data(url: str, text_parameter: str) -> dict[str, str | None]:
+def get_purchase_data(url: str) -> dict[str, str | None]:
     """Return the extracted purchase data for use by other scripts."""
-    _html, fields = fetch_purchase(url, text_parameter)
+    _html, fields = fetch_purchase(url)
     return fields
 
 
 def main() -> int:
-    if len(sys.argv) != 3:
-        print('Usage: python fetch_zakupki_page.py "<page_url>" "<text_parameter>"')
+    if len(sys.argv) != 2:
+        print('Usage: python fetch_zakupki_page.py "<page_url>"')
         return 2
 
-    page_url, text_parameter = sys.argv[1:3]
-    reg_number = page_url.split("regNumber=")[-1].split("&")[0] or "purchase"
+    page_url = sys.argv[1]
 
 
     try:
-        html, fields = fetch_purchase(page_url, text_parameter)
+        html, fields = fetch_purchase(page_url)
     except (requests.RequestException, OSError) as exc:
         print(f"Request failed: {exc}")
         return 1
