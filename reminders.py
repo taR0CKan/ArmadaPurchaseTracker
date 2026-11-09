@@ -46,8 +46,34 @@ def _threshold_lead_days(initial_price: int | None) -> int | None:
     return 7
 
 
+def _leads_for_status(status: str, initial_price: int | None) -> set[int]:
+    """Resolve status-specific lead days, with existing price rules as defaults."""
+    if status not in {"processing", "approved"}:
+        return set()
+
+    env_name = f"REMINDER_LEAD_DAYS_{status.upper()}"
+    configured = os.getenv(env_name)
+    if configured is not None:
+        try:
+            return {
+                days
+                for value in configured.split(",")
+                if value.strip()
+                for days in [int(value.strip())]
+                if days > 0
+            }
+        except ValueError:
+            logging.warning("Ignoring invalid %s value: %r", env_name, configured)
+
+    leads = {1}
+    price_lead = _threshold_lead_days(initial_price)
+    if price_lead is not None:
+        leads.add(price_lead)
+    return leads
+
+
 def _message(row: tuple, lead_days: int) -> str:
-    number, description, end_date_raw, initial_price, executor, executor_name, purchase_url = row
+    number, description, end_date_raw, initial_price, executor, executor_name, purchase_url, _status = row
     end_date = parse_date(end_date_raw)
     due = end_date.strftime("%d.%m.%Y") if end_date else html.escape(str(end_date_raw))
     executor_text = "не назначен"
@@ -86,18 +112,15 @@ async def check_and_send_reminders(bot: Bot) -> None:
         purchases, sent = load_reminder_data()
 
         for row in purchases:
-            number, _description, end_date_raw, initial_price, _executor, _executor_name, _url = row
+            number, _description, end_date_raw, initial_price, _executor, _executor_name, _url, status = row
             end_date = parse_date(end_date_raw)
             if end_date is None or today > end_date:
                 continue
 
-            leads = {1}
-            price_lead = _threshold_lead_days(initial_price)
-            if price_lead is not None:
-                leads.add(price_lead)
+            leads = _leads_for_status(status, initial_price)
 
             for lead_days in sorted(leads):
-                if (number, lead_days) in sent or today < end_date - timedelta(days=lead_days):
+                if (number, status, lead_days) in sent or today < end_date - timedelta(days=lead_days):
                     continue
                 # If a later reminder is already due, it supersedes any older
                 # reminder whose trigger date was missed (for example, send
@@ -124,8 +147,8 @@ async def check_and_send_reminders(bot: Bot) -> None:
                     continue
 
                 sent_at = datetime.now(ZoneInfo(REMINDER_TIMEZONE))
-                mark_reminder_sent(number, lead_days, sent_at)
-                sent.add((number, lead_days))
+                mark_reminder_sent(number, status, lead_days, sent_at)
+                sent.add((number, status, lead_days))
 
 
 async def run_daily_reminders(bot: Bot) -> None:

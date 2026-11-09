@@ -99,14 +99,14 @@ async def send_purchases_list(message: Message) -> None:
         "Начало подачи заявок",
         "Окончание подачи заявок",
         "Порядок подачи заявок",
-        "Одобрено",
+        "Статус",
         "Исполнитель",
     )
     try:
         with sqlite3.connect(DB_PATH, timeout=30) as connection:
             rows = connection.execute(
                 """SELECT purchase_number, description, start_date, end_date,
-                          submission_procedure, is_approved, executor_name
+                          submission_procedure, status, executor_name
                    FROM purchases
                    ORDER BY purchase_number"""
             ).fetchall()
@@ -120,7 +120,6 @@ async def send_purchases_list(message: Message) -> None:
     sheet.append(headers)
     for row in rows:
         values = list(row)
-        values[5] = "Да" if values[5] else "Нет"
         sheet.append(values)
     for column in sheet.columns:
         column_letter = column[0].column_letter
@@ -167,7 +166,7 @@ async def send_purchase_status(
         with sqlite3.connect(DB_PATH, timeout=30) as connection:
             row = connection.execute(
                 """SELECT purchase_number, description, start_date, end_date,
-                          submission_procedure, is_approved, executor_name
+                          submission_procedure, status, executor_name
                    FROM purchases WHERE purchase_number = ?""",
                 (purchase_number,),
             ).fetchone()
@@ -185,11 +184,10 @@ async def send_purchase_status(
         "Начало подачи заявок",
         "Окончание подачи заявок",
         "Порядок подачи заявок",
-        "Одобрено",
+        "Статус",
         "Исполнитель",
     )
     values = list(row)
-    values[5] = "Да" if values[5] else "Нет"
     lines = [
         f"{label}: {value if value is not None else '—'}"
         for label, value in zip(labels, values)

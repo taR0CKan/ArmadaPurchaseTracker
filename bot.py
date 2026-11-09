@@ -134,6 +134,13 @@ async def process_reaction(event: MessageReactionUpdated) -> None:
         return
     if changed:
         logging.info("Updated reactions for Telegram message %s", event.message_id)
+        try:
+            await check_and_send_reminders(event.bot)
+        except Exception:
+            logging.exception(
+                "Failed to check reminders after reaction update for message %s",
+                event.message_id,
+            )
 
 
 

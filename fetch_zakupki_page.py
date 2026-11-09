@@ -26,7 +26,7 @@ FIELDS = {
 
 
 
-def extract_fields(html: str) -> dict[str, str | None]:
+def extract_fields(html: str) -> dict[str, str | int | None]:
     soup = BeautifulSoup(html, "html.parser")
     result = {
         "purchase_number": None,
@@ -69,7 +69,7 @@ def extract_fields(html: str) -> dict[str, str | None]:
     return result
 
 
-def fetch_purchase(url: str) -> tuple[str, dict[str, str | None]]:
+def fetch_purchase(url: str) -> tuple[str, dict[str, str | int | None]]:
     """Fetch a card URL and extract its purchase fields."""
     ca_bundle = certificate_prep.prepare_ca_bundle()
     response = requests.get(
@@ -90,7 +90,7 @@ def fetch_purchase(url: str) -> tuple[str, dict[str, str | None]]:
     return response.text, fields
 
 
-def get_purchase_data(url: str) -> dict[str, str | None]:
+def get_purchase_data(url: str) -> dict[str, str | int | None]:
     """Return the extracted purchase data for use by other scripts."""
     _html, fields = fetch_purchase(url)
     return fields
