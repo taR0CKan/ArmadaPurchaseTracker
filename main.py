@@ -8,23 +8,23 @@ from bot import messages_router
 
 import asyncio
 
-from reminders import (
-    reminder_chat_id,
-    reminders_enabled,
-    run_daily_reminders,
-)
+from reminders import reminder_chat_id, reminders_enabled, run_daily_reminders
+
 
 load_dotenv()
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 bot = Bot(token=BOT_TOKEN)
+CHAT_ID = os.getenv("PURCHASE_CHAT_ID")
 
-dp = Dispatcher()
-dp.include_routers(commands_router, messages_router)
 
-async def  main():
+
+async def main():
+    dp = Dispatcher()
+    dp.include_routers(commands_router, messages_router)
     if reminders_enabled():
         reminder_chat_id()
 
+    
     async with bot:
         reminder_task = (
             asyncio.create_task(run_daily_reminders(bot))
@@ -39,6 +39,7 @@ async def  main():
                 allowed_updates=["message", "message_reaction"],
                 drop_pending_updates=False,
             )
+
         finally:
             if reminder_task is not None:
                 reminder_task.cancel()

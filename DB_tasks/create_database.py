@@ -71,6 +71,7 @@ def main() -> None:
                     start_date DATETIME,
                     end_date DATETIME,
                     submission_procedure TEXT,
+                    purchase_method TEXT,
                     initial_price INTEGER,
                     source_message TEXT,
                     executor TEXT,
@@ -85,6 +86,7 @@ def main() -> None:
                 record.setdefault("source_message", None)
                 record.setdefault("executor", None)
                 record.setdefault("executor_name", None)
+                record.setdefault("purchase_method", None)
                 if "status" not in record:
                     record["status"] = (
                         "preapproved" if record.get("is_approved") else "unchecked"
@@ -99,12 +101,12 @@ def main() -> None:
                 connection.execute(
                     """INSERT INTO purchases (
                         purchase_number, description, start_date, end_date,
-                        submission_procedure, initial_price, source_message,
+                        submission_procedure, purchase_method, initial_price, source_message,
                         executor, executor_name, status, purchase_URL
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     tuple(record.get(name) for name in (
                         "purchase_number", "description", "start_date", "end_date",
-                        "submission_procedure", "initial_price", "source_message",
+                        "submission_procedure", "purchase_method", "initial_price", "source_message",
                         "executor", "executor_name", "status", "purchase_URL"
                     )),
                 )
@@ -117,6 +119,7 @@ def main() -> None:
                 start_date DATETIME,
                 end_date DATETIME,
                 submission_procedure TEXT,
+                purchase_method TEXT,
                 initial_price INTEGER,
                 source_message TEXT,
                 executor TEXT,
@@ -150,6 +153,8 @@ def main() -> None:
                 )
         if "purchase_URL" not in columns:
             connection.execute("ALTER TABLE purchases ADD COLUMN purchase_URL TEXT")
+        if "purchase_method" not in columns:
+            connection.execute("ALTER TABLE purchases ADD COLUMN purchase_method TEXT")
     ensure_reminders_table()
     print(f"Database ready: {DB_PATH}")
 

@@ -8,7 +8,11 @@ import sqlite3
 
 
 from aiogram import Router
-from aiogram.types import Message, MessageReactionUpdated, ReactionTypeEmoji
+from aiogram.types import (
+    Message,
+    MessageReactionUpdated,
+    ReactionTypeEmoji,
+)
 from requests import RequestException
 
 from DB_tasks.add_purchase import add_purchase, update_message_reaction
@@ -100,7 +104,12 @@ async def process_message(message: Message) -> None:
 @messages_router.message_reaction()
 async def process_reaction(event: MessageReactionUpdated) -> None:
     """Track 👍 executor and configured user's 👌 approval reaction."""
+    logging.info("Reaction update received: message_id=%s", event.message_id)
     if event.user is None:
+        logging.warning(
+            "Ignoring reaction update for message_id=%s: Telegram did not provide actor user",
+            event.message_id,
+        )
         return
 
     def emoji_set(reactions: list) -> set[str]:
@@ -111,14 +120,21 @@ async def process_reaction(event: MessageReactionUpdated) -> None:
         }
 
     approver_raw = os.getenv("APPROVER_TELEGRAM_USER_ID")
-    approver_id = int(approver_raw) if approver_raw else None
+    try:
+        approver_id = int(approver_raw) if approver_raw else None
+
+    except ValueError:
+        logging.exception("APPROVER_TELEGRAM_USER_ID must be an integer; raw=%r", approver_raw)
+        return
+    old_emojis = emoji_set(event.old_reaction)
+    new_emojis = emoji_set(event.new_reaction)
     try:
         changed = await asyncio.to_thread(
             update_message_reaction,
             event.message_id,
             event.user.id,
-            emoji_set(event.old_reaction),
-            emoji_set(event.new_reaction),
+            old_emojis,
+            new_emojis,
             approver_id,
             " ".join(
                 part
@@ -130,10 +146,13 @@ async def process_reaction(event: MessageReactionUpdated) -> None:
             ),
         )
     except sqlite3.Error:
-        logging.exception("Failed to save Telegram reaction")
+        logging.exception(
+            "Failed to save Telegram reaction: message_id=%s user_id=%s",
+            event.message_id,
+            event.user.id,
+        )
         return
     if changed:
-        logging.info("Updated reactions for Telegram message %s", event.message_id)
         try:
             await check_and_send_reminders(event.bot)
         except Exception:

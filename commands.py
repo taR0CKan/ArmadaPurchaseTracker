@@ -10,26 +10,43 @@ from aiogram import Router
 from aiogram.filters import Command, CommandObject
 from aiogram.types import BufferedInputFile, Message
 from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
 
 from DB_tasks.create_database import DB_PATH
 
 
+
+
 router = Router()
 ENV_PATH = Path(__file__).with_name(".env")
+STATUS_LABELS = {
+    "unchecked": "Не проверено",
+    "preapproved": "Предварительно одобрено",
+    "processing": "В обработке",
+    "cancelled": "Не участвуем",
+    "approved": "Участвуем",
+}
 
 
 HELP_TEXT = """
 <b>Инструкция по использованию бота</b>
-Бот собирает данные с каждой ссылки на закупку, отправленную во время его работы.
+Бот собирает данные с каждой ссылки на закупку, отправленную во время его работы. Если за закупкой есть ответственный
+или она одобрена, бот присылает напоминания о необходимости следить за ней.
+
+<b>Для всех пользователей</b>
 - Реакция 'Палец вверх' - 👍 сделает вас ответственным за задачу. Ответственным считается последний поставивший реакцию.
-- Реакция 'OK' - 👌 одобряет закупку. Сработает только за закрепленным сотрудником. По умолчанию Александр.
+
+<b>Для одобряющего</b>
+- Реакция 'OK' - 👌  предварительно одобряет закупку. Сработает только за закрепленным сотрудником. По умолчанию Александр.
+- Реакция 'Огонь' - 🔥  окончательно одобряет закупку на участие.
+- Реакция 'Палец вниз' - 👎  окончательно отклоняет закупку.
 
 <b>Доступные команды:</b>
-
 /link — сохранить ID текущего чата для уведомлений. Обязательно перед началом работы.
 /list — получить Excel-файл со всеми закупками.
 /status "номер" — получить данные закупки по её номеру. Также можно ответить /status на сообщение с ссылкой.
 /exclude "номер" — удалить закупку по её номеру. Также можно ответить /exclude на сообщение с ссылкой.
+/add "номер" — добавить закупку по её номеру. Также можно ответить /add на сообщение с ссылкой.
 /help — показать эту инструкцию.
 """
 
@@ -99,6 +116,7 @@ async def send_purchases_list(message: Message) -> None:
         "Начало подачи заявок",
         "Окончание подачи заявок",
         "Порядок подачи заявок",
+        "Способ осуществления закупки",
         "Статус",
         "Исполнитель",
     )
@@ -106,7 +124,7 @@ async def send_purchases_list(message: Message) -> None:
         with sqlite3.connect(DB_PATH, timeout=30) as connection:
             rows = connection.execute(
                 """SELECT purchase_number, description, start_date, end_date,
-                          submission_procedure, status, executor_name
+                          submission_procedure, purchase_method, status, executor_name
                    FROM purchases
                    ORDER BY purchase_number"""
             ).fetchall()
@@ -120,7 +138,22 @@ async def send_purchases_list(message: Message) -> None:
     sheet.append(headers)
     for row in rows:
         values = list(row)
+        values[6] = STATUS_LABELS.get(values[6], values[6])
         sheet.append(values)
+    for row in sheet.iter_rows():
+        for cell in row:
+            cell.font = Font(name="Times New Roman", size=10)
+            cell.alignment = Alignment(
+                horizontal="center",
+                vertical="center",
+                wrap_text=(cell.column == 2),
+            )
+    for cell in sheet[1]:
+        cell.fill = PatternFill(
+            fill_type="solid",
+            fgColor="D9D9D9",
+        )
+        cell.font = Font(name="Times New Roman", size=10, bold=True)
     for column in sheet.columns:
         column_letter = column[0].column_letter
         content_width = max(
@@ -166,7 +199,7 @@ async def send_purchase_status(
         with sqlite3.connect(DB_PATH, timeout=30) as connection:
             row = connection.execute(
                 """SELECT purchase_number, description, start_date, end_date,
-                          submission_procedure, status, executor_name
+                          submission_procedure, purchase_method, status, executor_name
                    FROM purchases WHERE purchase_number = ?""",
                 (purchase_number,),
             ).fetchone()
@@ -184,10 +217,12 @@ async def send_purchase_status(
         "Начало подачи заявок",
         "Окончание подачи заявок",
         "Порядок подачи заявок",
+        "Способ осуществления закупки",
         "Статус",
         "Исполнитель",
     )
     values = list(row)
+    values[6] = STATUS_LABELS.get(values[6], values[6])
     lines = [
         f"{label}: {value if value is not None else '—'}"
         for label, value in zip(labels, values)

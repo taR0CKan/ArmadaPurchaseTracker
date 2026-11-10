@@ -16,8 +16,9 @@ def add_purchase(record: dict[str, str | None]) -> bool:
             """
             INSERT OR IGNORE INTO purchases (
                 purchase_number, description, start_date, end_date,
-                submission_procedure, initial_price, source_message, purchase_URL, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'unchecked')
+                submission_procedure, purchase_method, initial_price,
+                source_message, purchase_URL, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'unchecked')
             """,
             (
                 purchase_number,
@@ -25,6 +26,7 @@ def add_purchase(record: dict[str, str | None]) -> bool:
                 record.get("start_date"),
                 record.get("end_date"),
                 record.get("submission_procedure"),
+                record.get("purchase_method"),
                 record.get("initial_price"),
                 str(record["source_message"]) if record.get("source_message") is not None else None,
                 record.get("purchase_URL"),
@@ -53,7 +55,6 @@ def update_message_reaction(
 
         status = purchase[0] or "unchecked"
         changed = False
-
         if "👍" in added:
             connection.execute(
                 "UPDATE purchases SET executor = ?, executor_name = ? WHERE source_message = ?",
@@ -70,11 +71,10 @@ def update_message_reaction(
                     new_status = "cancelled"
             elif "👌" in added:
                 new_status = "preapproved"
-            elif status in {"preapproved", "processing"}:
-                if "🔥" in added:
-                    new_status = "approved"
-                elif "👎" in added:
-                    new_status = "cancelled"
+            elif "🔥" in added:
+                new_status = "approved"
+            elif "👎" in added:
+                new_status = "cancelled"
         elif "👍" in added:
             new_status = "processing"
 
@@ -84,5 +84,4 @@ def update_message_reaction(
                 (new_status, str(message_id)),
             )
             changed = True
-
         return changed

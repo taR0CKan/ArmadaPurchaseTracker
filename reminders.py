@@ -73,7 +73,7 @@ def _leads_for_status(status: str, initial_price: int | None) -> set[int]:
 
 
 def _message(row: tuple, lead_days: int) -> str:
-    number, description, end_date_raw, initial_price, executor, executor_name, purchase_url, _status = row
+    number, description, end_date_raw, initial_price, executor, executor_name, purchase_url, status = row
     end_date = parse_date(end_date_raw)
     due = end_date.strftime("%d.%m.%Y") if end_date else html.escape(str(end_date_raw))
     executor_text = "не назначен"
@@ -91,14 +91,16 @@ def _message(row: tuple, lead_days: int) -> str:
         reminder_label = "до окончания срока остался 1 день"
     else:
         reminder_label = f"напоминание за {lead_days} дн. до окончания срока"
-    return (
+    text = (
         f"⏰ <b>{reminder_label}</b>\n"
         f"Закупка: <code>{html.escape(str(number))}</code>\n"
         f"Описание: {description_text}\n"
         f"Дедлайн: <b>{due}</b>\n"
-        f"Начальная цена: {html.escape(format_price(initial_price))}\n"
-        f"Ответственный: {executor_text}{url_line}"
+        f"Стоимость: {html.escape(format_price(initial_price))}"
     )
+    if status == "processing":
+        text += f"\nОтветственный: {executor_text}"
+    return text + url_line
 
 
 async def check_and_send_reminders(bot: Bot) -> None:
